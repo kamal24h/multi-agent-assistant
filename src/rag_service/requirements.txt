@@ -1,0 +1,34 @@
+# src/rag_service/requirements.txt
+fastapi
+uvicorn[standard]
+gunicorn
+
+langchain-core
+langchain-community
+langchain-ollama
+langchain-qdrant
+langchain-text-splitters
+
+qdrant-client>=1.7,<2
+
+pydantic
+pydantic-settings>=2.0.0
+python-multipart
+
+unstructured
+docx2txt
+pypdf
+
+redis
+pika
+
+sqlalchemy
+psycopg[binary]
+# psycopg2-binary
+
+# for Reranking
+langchain_classic
+langchain-huggingface
+sentence-transformers
+
+openai>=1.40,<3.0

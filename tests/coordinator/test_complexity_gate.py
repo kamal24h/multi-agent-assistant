@@ -1,4 +1,4 @@
-# src/tests/coordinator/test_complexity_gate.py
+# tests/coordinator/test_complexity_gate.py
 
 """Unit tests for conservative complexity gate (D9 revised)."""
 from __future__ import annotations

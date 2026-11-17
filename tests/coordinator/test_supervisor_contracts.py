@@ -1,4 +1,4 @@
-# src/tests/coordinator/test_supervisor_contracts.py
+# tests/coordinator/test_supervisor_contracts.py
 
 """Unit tests for Supervisor Task Contract (Phase 1)."""
 from __future__ import annotations

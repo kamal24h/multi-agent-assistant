@@ -178,6 +178,10 @@ class CoordinatorSettings(BaseModel):
     guardrails_max_tool_result_chars: int = Field(
         default_factory=lambda: int(os.getenv("GUARDRAILS_MAX_TOOL_RESULT_CHARS", "12000")), ge=500, le=50000
     )
-
+    # --- Multi-Agent Supervisor (Phase 1) ---
+    supervisor_enabled: bool = Field(
+        default_factory=lambda: os.getenv("SUPERVISOR_ENABLED", "false").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
 
 settings = CoordinatorSettings()

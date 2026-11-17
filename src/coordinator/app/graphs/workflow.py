@@ -501,6 +501,13 @@ def build_graph():
 
         if not routes:
             return "local_rag"
+
+        # NEW: Multi-Agent Supervisor (Phase 1, feature-flagged).
+        if settings.supervisor_enabled:
+            from app.supervisor.complexity import is_complex_request
+            if is_complex_request(state):
+                return "supervisor"
+        
         if len(routes) > 1:
             return "planning"
         return routes[0]
@@ -766,12 +773,49 @@ def build_graph():
             "conversation_id": conversation_id, "message_id": message_id,
         }
 
+    async def supervisor_node(state: GraphState) -> dict[str, Any]:
+        """Run Supervisor for complex requests (Phase 1, feature-flagged)."""
+        from app.supervisor.runner import run_supervisor
+
+        req = state["request"]
+        started = time.perf_counter()
+
+        try:
+            supervisor_output = await run_supervisor(state)
+        except Exception:
+            logger.exception("Supervisor execution failed")
+            supervisor_output = {
+                "answer": "پاسخ‌دهی از طریق Supervisor ناموفق بود. لطفاً دوباره تلاش کنید.",
+                "sources": [],
+                "status": "failed",
+            }
+
+        # Ensure a conversation exists for persistence.
+        async with httpx.AsyncClient(timeout=settings.rag_api_timeout_seconds) as http:
+            conversation_id = await _ensure_conversation(http, req)
+
+        message_id = await persist_non_rag_turn(
+            req, conversation_id,
+            supervisor_output["answer"],
+            "supervisor_inventory",       # selectedPath
+            supervisor_output["sources"],
+            time.perf_counter() - started,
+        )
+        return {
+            "answer": supervisor_output["answer"],
+            "sources": supervisor_output["sources"],
+            "conversation_id": conversation_id,
+            "message_id": message_id,
+            "status": supervisor_output.get("status", "completed"),
+        }
+
     # ---- Graph wiring ----
     graph.add_node("input_guardrail", input_guardrail_node)
     graph.add_node("blocked", blocked_node)
     graph.add_node("intent_classifier", intent_classifier_node)
     graph.add_node("clarification", clarification_node)
     graph.add_node("planning", planning_node)
+    graph.add_node("supervisor", supervisor_node)
     graph.add_node("local_llm", local_llm_node)
     graph.add_node("local_rag", local_rag_node)
     graph.add_node("local_mcp", local_mcp_node)
@@ -795,6 +839,7 @@ def build_graph():
             "openai": "openai",
             "clarification": "clarification",
             "planning": "planning",
+            "supervisor": "supervisor",
         },
     )
     # Clarification node: if a question is asked, the graph ends (the caller
@@ -814,6 +859,7 @@ def build_graph():
     graph.add_edge("local_mcp", END)
     graph.add_edge("erp_write", END)
     graph.add_edge("planning", END)
+    graph.add_edge("supervisor", END)
     graph.add_edge("blocked", END)
     return graph.compile()
 

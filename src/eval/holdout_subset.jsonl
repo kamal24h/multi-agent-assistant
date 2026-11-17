@@ -1,0 +1,16 @@
+{"id":"ST-04","category":"small_talk","prompt":"صبح بخیر، خسته نباشید"}
+{"id":"ST-05","category":"small_talk","prompt":"باشه، ممنون"}
+{"id":"DR-08","category":"document_rag","prompt":"خط‌مشی امنیت اطلاعات در سازمان چیست؟"}
+{"id":"DR-09","category":"document_rag","prompt":"آیین‌نامه استفاده از خودروی سازمانی چگونه است؟"}
+{"id":"DR-10","category":"document_rag","prompt":"فرآیند انبارگردانی سالانه چگونه انجام می‌شود؟"}
+{"id":"ED-06","category":"erp_data","prompt":"موجودی کالای SKU-67890 در انبار شعبه شمال چقدر است؟"}
+{"id":"ED-09","category":"erp_data","prompt":"وضعیت حساب مشتری CUST-555 چگونه است؟"}
+{"id":"ED-10","category":"erp_data","prompt":"تاریخ آخرین تراکنش انبار کالای SKU-22222 چه بود؟"}
+{"id":"EA-04","category":"erp_action","prompt":"فاکتور خرید INV-P-2024-300 را لغو کن"}
+{"id":"EA-05","category":"erp_action","prompt":"سفارش فروش SO-2024-400 را ارسال کن"}
+{"id":"MX-06","category":"mixed","prompt":"موجودی SKU-44444 چقدر است و طبق رویه کنترل موجودی آیا نیاز به سفارش مجدد دارد؟"}
+{"id":"MX-09","category":"mixed","prompt":"آخرین تراکنش SKU-66666 چه بود و طبق دستورالعمل انبار چه اقدامی لازم است؟"}
+{"id":"MX-10","category":"mixed","prompt":"وضعیت سفارش‌های فروش هفته گذشته چیست و آیا طبق رویه ارسال، همه ارسال شده‌اند؟"}
+{"id":"MS-06","category":"multi_step","prompt":"سفارش‌های خرید PO-2024-701 و PO-2024-702 را مقایسه کن و بگو کدام تأخیردارتر است"}
+{"id":"MS-09","category":"multi_step","prompt":"سفارش‌های فروش SO-2024-801 و SO-2024-802 را از نظر مبلغ و تاریخ تحویل مقایسه کن"}
+{"id":"MS-10","category":"multi_step","prompt":"آخرین تراکنش‌های انبار SKU-88888 را به تفکیک نوع تراکنش تحلیل کن"}

@@ -488,31 +488,46 @@ def build_graph():
     def route_by_intent(state: GraphState) -> str:
         decision = state.get("intent_decision")
         if decision is None:
+            logger.warning("ROUTE: no decision -> local_rag")
             return "local_rag"
+
         if decision.needs_clarification or decision.intent == "AMBIGUOUS":
+            logger.warning(
+                "ROUTE: intent=%s needs_clarification=%s -> clarification",
+                decision.intent, decision.needs_clarification,
+            )
             return "clarification"
 
         routes = decision.normalized_routes()
 
         # اگر MCP غیرفعال است، مسیرهای وابسته به آن به RAG هدایت شوند
-        if not settings.erp_mcp_enabled:
-            if decision.intent in ("ERP_DATA_QUERY", "ERP_ACTION", "MIXED_QUERY"):
-                return "local_rag"
-
-        if not routes:
+        if not settings.erp_mcp_enabled and decision.intent in (
+            "ERP_DATA_QUERY", "ERP_ACTION", "MIXED_QUERY"
+        ):
+            logger.warning(
+                "ROUTE: intent=%s but erp_mcp_enabled=false -> local_rag",
+                decision.intent,
+            )
             return "local_rag"
 
-        # NEW: Multi-Agent Supervisor (Phase 1, feature-flagged).
-        if settings.supervisor_enabled:
-            from app.supervisor.complexity import is_complex_request
-            if is_complex_request(state):
-                return "supervisor"
-        
+        if not routes:
+            logger.warning("ROUTE: intent=%s routes=[] -> local_rag", decision.intent)
+            return "local_rag"
+
         if len(routes) > 1:
+            logger.warning(
+                "ROUTE: intent=%s routes=%s -> planning", decision.intent, routes,
+            )
             return "planning"
-        return routes[0]
+
+        chosen = routes[0]
+        logger.warning(
+            "ROUTE: intent=%s routes=%s -> %s", decision.intent, routes, chosen,
+        )
+        return chosen    
 
     async def local_llm_node(state: GraphState) -> dict[str, Any]:
+        logger.warning("local_llm_node invoked")
         req = state["request"]
         started = time.perf_counter()
         answer, source = await answer_external_first(
@@ -536,6 +551,7 @@ def build_graph():
         }
 
     async def local_rag_node(state: GraphState) -> dict[str, Any]:
+        logger.warning("local_rag_node invoked")
         req = state["request"]
         conversation_id, message_id, answer, sources = await invoke_rag_api(
             req,
@@ -553,45 +569,53 @@ def build_graph():
         }
 
     async def local_mcp_node(state: GraphState) -> dict[str, Any]:
+        logger.warning("local_mcp_node invoked")
         if not settings.erp_mcp_enabled:
             raise McpClientError("erp_mcp_disabled")
-        req = state["request"]
-        started = time.perf_counter()
-        client = ErpMcpClient(authorization=state.get("authorization"))
-        tools = await client.list_read_only_tools(req.tenantId, req.userId)
-        if not tools:
-            raise McpClientError("no_read_only_erp_tools_available")
-        terminology_context = state.get("terminology_context", "")
-        selected = await select_erp_tool(
-            req.prompt, tools, terminology_context=terminology_context
-        )
-        result = await client.call_tool(
-            selected["name"], selected["arguments"], req.tenantId, req.userId,
-        )
-        if settings.guardrails_enabled:
-            result = sanitize_tool_payload(result, max_chars=settings.guardrails_max_tool_result_chars)
-        answer = await summarize_erp_result(
-            req.prompt, selected["name"], result,
-            terminology_context=terminology_context,
-        )
-        if settings.guardrails_enabled:
-            answer, flags = guard_output(answer, settings.guardrails_max_output_chars)
-            if flags:
-                logger.warning("Output guardrail applied: flags=%s path=local_mcp",
-                               ",".join(flags))
-        sources = [{"type": "erp_mcp", "tool": selected["name"]}]
-        async with httpx.AsyncClient(timeout=settings.rag_api_timeout_seconds) as http:
-            conversation_id = await _ensure_conversation(http, req)
-        message_id = await persist_non_rag_turn(
-            req, conversation_id, answer, "local_mcp", sources,
-            time.perf_counter() - started,
-        )
-        return {
-            "answer": answer, "sources": sources,
-            "conversation_id": conversation_id, "message_id": message_id,
-        }
+        try:
+            req = state["request"]
+            started = time.perf_counter()
+            client = ErpMcpClient(authorization=state.get("authorization"))
+            tools = await client.list_read_only_tools(req.tenantId, req.userId)
+            if not tools:
+                raise McpClientError("no_read_only_erp_tools_available")
+            terminology_context = state.get("terminology_context", "")
+            selected = await select_erp_tool(
+                req.prompt, tools, terminology_context=terminology_context
+            )
+            result = await client.call_tool(
+                selected["name"], selected["arguments"], req.tenantId, req.userId,
+            )
+            if settings.guardrails_enabled:
+                result = sanitize_tool_payload(result, max_chars=settings.guardrails_max_tool_result_chars)
+            answer = await summarize_erp_result(
+                req.prompt, selected["name"], result,
+                terminology_context=terminology_context,
+            )
+            if settings.guardrails_enabled:
+                answer, flags = guard_output(answer, settings.guardrails_max_output_chars)
+                if flags:
+                    logger.warning("Output guardrail applied: flags=%s path=local_mcp",
+                                ",".join(flags))
+            sources = [{"type": "erp_mcp", "tool": selected["name"]}]
+            async with httpx.AsyncClient(timeout=settings.rag_api_timeout_seconds) as http:
+                conversation_id = await _ensure_conversation(http, req)
+            message_id = await persist_non_rag_turn(
+                req, conversation_id, answer, "local_mcp", sources,
+                time.perf_counter() - started,
+            )
+            return {
+                "answer": answer, "sources": sources,
+                "conversation_id": conversation_id, "message_id": message_id,
+            }
+        except McpClientError as exc:
+            logger.warning(
+                "local_mcp_node failed (%s); falling back to RAG", exc.code,
+            )
+        return await local_rag_node(state)
 
     async def openai_node(state: GraphState) -> dict[str, Any]:
+        logger.warning("openAI_node invoked")
         req = state["request"]
         started = time.perf_counter()
         answer, source = await answer_external_first(
@@ -718,6 +742,7 @@ def build_graph():
         conversation_id: UUID | None = None
 
         try:
+            logger.warning("planning_node: invoking RAG")
             conversation_id, _mid, rag_answer, rag_sources = await invoke_rag_api(
                 req,
                 terminology_context=state.get("terminology_context", ""),
@@ -773,49 +798,12 @@ def build_graph():
             "conversation_id": conversation_id, "message_id": message_id,
         }
 
-    async def supervisor_node(state: GraphState) -> dict[str, Any]:
-        """Run Supervisor for complex requests (Phase 1, feature-flagged)."""
-        from app.supervisor.runner import run_supervisor
-
-        req = state["request"]
-        started = time.perf_counter()
-
-        try:
-            supervisor_output = await run_supervisor(state)
-        except Exception:
-            logger.exception("Supervisor execution failed")
-            supervisor_output = {
-                "answer": "پاسخ‌دهی از طریق Supervisor ناموفق بود. لطفاً دوباره تلاش کنید.",
-                "sources": [],
-                "status": "failed",
-            }
-
-        # Ensure a conversation exists for persistence.
-        async with httpx.AsyncClient(timeout=settings.rag_api_timeout_seconds) as http:
-            conversation_id = await _ensure_conversation(http, req)
-
-        message_id = await persist_non_rag_turn(
-            req, conversation_id,
-            supervisor_output["answer"],
-            "supervisor_inventory",       # selectedPath
-            supervisor_output["sources"],
-            time.perf_counter() - started,
-        )
-        return {
-            "answer": supervisor_output["answer"],
-            "sources": supervisor_output["sources"],
-            "conversation_id": conversation_id,
-            "message_id": message_id,
-            "status": supervisor_output.get("status", "completed"),
-        }
-
     # ---- Graph wiring ----
     graph.add_node("input_guardrail", input_guardrail_node)
     graph.add_node("blocked", blocked_node)
     graph.add_node("intent_classifier", intent_classifier_node)
     graph.add_node("clarification", clarification_node)
     graph.add_node("planning", planning_node)
-    graph.add_node("supervisor", supervisor_node)
     graph.add_node("local_llm", local_llm_node)
     graph.add_node("local_rag", local_rag_node)
     graph.add_node("local_mcp", local_mcp_node)
@@ -839,7 +827,6 @@ def build_graph():
             "openai": "openai",
             "clarification": "clarification",
             "planning": "planning",
-            "supervisor": "supervisor",
         },
     )
     # Clarification node: if a question is asked, the graph ends (the caller
@@ -859,7 +846,6 @@ def build_graph():
     graph.add_edge("local_mcp", END)
     graph.add_edge("erp_write", END)
     graph.add_edge("planning", END)
-    graph.add_edge("supervisor", END)
     graph.add_edge("blocked", END)
     return graph.compile()
 
@@ -1078,7 +1064,7 @@ async def _evaluate_clarification_before_run(
     if pending:
         merged = _merge_clarification_prompt(pending, req.prompt)
         req = req.model_copy(update={"prompt": merged})
-        logger.info("Clarification resumed for conversation=%s", req.conversationId)
+        logger.warning("Clarification resumed for conversation=%s", req.conversationId)
         await _clear_pending_clarification(req.conversationId)
 
     assessment = assess_input(req.prompt) if settings.guardrails_enabled else None
